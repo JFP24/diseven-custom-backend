@@ -1,12 +1,11 @@
+// index.js
 import app from './app.js';
-// import connectDB from './db.js';
+import { conectarDB } from './db.js';
 
-// Configuración sin .env
-const PORT = 3000;
-const HOST = '0.0.0.0';
+const PORT = process.env.PORT || 3000;
 
-// connectDB();
-
-app.listen(PORT, HOST, () => {
-  console.log(`✅ Servidor corriendo en http://${HOST}:${PORT}`);
+conectarDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+  });
 });
