@@ -1,8 +1,8 @@
 # Dependencias
 node_modules/
 
-# Variables de entorno (NUNCA subir)
-.env
+# Variables de entorno
+# (.env se sube a propósito para que el despliegue funcione con git pull)
 .env.local
 .env.*.local
 
