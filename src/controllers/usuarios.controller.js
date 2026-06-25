@@ -1,156 +1,115 @@
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import User from "../models/usuarios.models.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
-// Crear usuario
-export const createUser = async (req, res) => {
-  try {
-    const { username, email, image, password, role } = req.body;
+const SAFE_PROJECTION = "-password -resetToken -resetTokenExpiresAt";
 
-    if (!username || !email || !password) {
-      return res
-        .status(400)
-        .json({ msg: "Faltan datos obligatorios (username, email, password)" });
-    }
+// Crear usuario (solo admin)
+export const createUser = asyncHandler(async (req, res) => {
+  const { username, email, image, password, role } = req.body;
 
-    // ¿Email ya existe?
-    const existing = await User.findOne({ email: email.toLowerCase().trim() });
-    if (existing) {
-      return res.status(409).json({ msg: "Ya existe un usuario con ese email" });
-    }
-
-    // Hashear password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Crear usuario
-    const newUser = await User.create({
-      username: username.trim(),
-      email: email.toLowerCase().trim(),
-      password: hashedPassword,
-      image: image || null,
-      role: role || "user",
-      isActive: true,
-    });
-
-    return res.status(201).json({
-      msg: "Usuario creado correctamente",
-      user: newUser.toSafeJSON(),
-    });
-  } catch (error) {
-    console.error("Error createUser:", error);
-
-    // choque de índice único en Mongo (email duplicado)
-    if (error.code === 11000) {
-      return res.status(409).json({ msg: "Ese email ya está registrado" });
-    }
-
-    return res.status(500).json({ msg: "Error interno al crear usuario" });
+  if (!username || !email || !password) {
+    return res
+      .status(400)
+      .json({ msg: "Faltan datos obligatorios (username, email, password)" });
   }
-};
+
+  const existing = await User.findOne({ email: email.toLowerCase().trim() });
+  if (existing) {
+    return res.status(409).json({ msg: "Ya existe un usuario con ese email" });
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  const newUser = await User.create({
+    username: username.trim(),
+    email: email.toLowerCase().trim(),
+    password: hashedPassword,
+    image: image || null,
+    role: role || "user",
+    isActive: true,
+  });
+
+  return res.status(201).json({
+    msg: "Usuario creado correctamente",
+    user: newUser.toSafeJSON(),
+  });
+});
 
 // Listar todos los usuarios
-export const getUsers = async (req, res) => {
-  try {
-    const users = await User.find({}, "-password -resetToken -resetTokenExpiresAt")
-      .sort({ createdAt: -1 });
-
-    return res.status(200).json(users);
-  } catch (error) {
-    console.error("Error getUsers:", error);
-    return res.status(500).json({ msg: "Error interno al obtener usuarios" });
-  }
-};
+export const getUsers = asyncHandler(async (req, res) => {
+  const users = await User.find({}, SAFE_PROJECTION).sort({ createdAt: -1 });
+  return res.status(200).json(users);
+});
 
 // Obtener un usuario por ID
-export const getUserById = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // validar id
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ msg: "ID inválido" });
-    }
-
-    const user = await User.findById(
-      id,
-      "-password -resetToken -resetTokenExpiresAt"
-    );
-
-    if (!user) {
-      return res.status(404).json({ msg: "Usuario no encontrado" });
-    }
-
-    return res.status(200).json(user);
-  } catch (error) {
-    console.error("Error getUserById:", error);
-    return res.status(500).json({ msg: "Error interno al obtener usuario" });
+export const getUserById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ msg: "ID inválido" });
   }
-};
 
-// Actualizar usuario (username, image, role, password opcional)
-export const updateUser = async (req, res) => {
-  try {
-    const { id } = req.params;
+  const user = await User.findById(id, SAFE_PROJECTION);
+  if (!user) return res.status(404).json({ msg: "Usuario no encontrado" });
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ msg: "ID inválido" });
-    }
+  return res.status(200).json(user);
+});
 
-    const { username, image, role, password } = req.body;
-
-    // armamos objeto dinámico con solo lo que vino
-    const updates = {};
-
-    if (username !== undefined) updates.username = username.trim();
-    if (image !== undefined) updates.image = image; // puede ser null para limpiar imagen
-    if (role !== undefined) updates.role = role;
-    if (password !== undefined && password.trim() !== "") {
-      updates.password = await bcrypt.hash(password, 10);
-      updates.passwordChangedAt = new Date();
-    }
-
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ msg: "No se enviaron datos para actualizar" });
-    }
-
-    const updated = await User.findByIdAndUpdate(
-      id,
-      updates,
-      { new: true, runValidators: true, projection: "-password -resetToken -resetTokenExpiresAt" }
-    );
-
-    if (!updated) {
-      return res.status(404).json({ msg: "Usuario no encontrado" });
-    }
-
-    return res.status(200).json({
-      msg: "Usuario actualizado correctamente",
-      user: updated,
-    });
-  } catch (error) {
-    console.error("Error updateUser:", error);
-    return res.status(500).json({ msg: "Error interno al actualizar usuario" });
+// Actualizar usuario (username, image, role*, password opcional)
+// *El rol SOLO lo puede cambiar un admin (evita escalada de privilegios).
+export const updateUser = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ msg: "ID inválido" });
   }
-};
 
-// Eliminar usuario
-export const deleteUser = async (req, res) => {
-  try {
-    const { id } = req.params;
+  const { username, image, role, password } = req.body;
+  const updates = {};
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ msg: "ID inválido" });
-    }
+  if (username !== undefined) updates.username = username.trim();
+  if (image !== undefined) updates.image = image; // null limpia la imagen
 
-    const deleted = await User.findByIdAndDelete(id);
-
-    if (!deleted) {
-      return res.status(404).json({ msg: "Usuario no encontrado" });
-    }
-
-    return res.status(200).json({ msg: "Usuario eliminado exitosamente" });
-  } catch (error) {
-    console.error("Error deleteUser:", error);
-    return res.status(500).json({ msg: "Error interno al eliminar usuario" });
+  // Solo un admin puede modificar el rol.
+  if (role !== undefined && req.user.role === "admin") {
+    updates.role = role;
   }
-};
+
+  if (password !== undefined && password.trim() !== "") {
+    if (password.trim().length < 8) {
+      return res.status(400).json({ msg: "La contraseña debe tener al menos 8 caracteres" });
+    }
+    updates.password = await bcrypt.hash(password, 10);
+    updates.passwordChangedAt = new Date();
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ msg: "No se enviaron datos para actualizar" });
+  }
+
+  const updated = await User.findByIdAndUpdate(id, updates, {
+    new: true,
+    runValidators: true,
+    projection: SAFE_PROJECTION,
+  });
+
+  if (!updated) return res.status(404).json({ msg: "Usuario no encontrado" });
+
+  return res.status(200).json({
+    msg: "Usuario actualizado correctamente",
+    user: updated,
+  });
+});
+
+// Eliminar usuario (solo admin)
+export const deleteUser = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ msg: "ID inválido" });
+  }
+
+  const deleted = await User.findByIdAndDelete(id);
+  if (!deleted) return res.status(404).json({ msg: "Usuario no encontrado" });
+
+  return res.status(200).json({ msg: "Usuario eliminado exitosamente" });
+});

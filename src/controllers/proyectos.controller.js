@@ -1,35 +1,30 @@
 import mongoose from "mongoose";
 import Proyecto from "../models/proyectos.models.js";
 import Plantilla from "../models/plantillas.models.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
-export const crearProyecto = async (req, res) => {
-  try {
-    const { name } = req.body;
-    console.log(req.user);
-    console.log(name)
-    if (!name?.trim()) return res.status(400).json({ message: "El nombre del proyecto es obligatorio" });
-    const proyecto = await Proyecto.create({
-      userId: req.user.id, // <<— del token
-      name: name.trim(),
-    });
+export const crearProyecto = asyncHandler(async (req, res) => {
+  const { name } = req.body;
 
-    return res.status(201).json({ message: "Proyecto creado", data: proyecto });
-  } catch (err) {
-    if (err.code === 11000) return res.status(409).json({ message: "Ya tienes un proyecto con ese nombre" });
-    return res.status(500).json({ message: "Error interno creando proyecto" });
-  }
-};
+  const proyecto = await Proyecto.create({
+    userId: req.user.id, // del token
+    name: name.trim(),
+  });
 
-export const listarProyectos = async (req, res) => {
+  return res.status(201).json({ message: "Proyecto creado", data: proyecto });
+});
+
+export const listarProyectos = asyncHandler(async (req, res) => {
   const proyectos = await Proyecto.find({ userId: req.user.id }).sort({ createdAt: -1 });
   return res.status(200).json({ data: proyectos });
-};
+});
 
-export const actualizarProyectoNombre = async (req, res) => {
+export const actualizarProyectoNombre = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name } = req.body;
-  if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ message: "ID inválido" });
-  if (!name?.trim()) return res.status(400).json({ message: "Nombre obligatorio" });
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "ID inválido" });
+  }
 
   // solo del usuario
   const actualizado = await Proyecto.findOneAndUpdate(
@@ -39,11 +34,13 @@ export const actualizarProyectoNombre = async (req, res) => {
   );
   if (!actualizado) return res.status(404).json({ message: "Proyecto no encontrado" });
   return res.status(200).json({ message: "Proyecto actualizado", data: actualizado });
-};
+});
 
-export const eliminarProyecto = async (req, res) => {
+export const eliminarProyecto = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ message: "ID inválido" });
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "ID inválido" });
+  }
 
   // borrar SOLO si pertenece al usuario
   const borrado = await Proyecto.findOneAndDelete({ _id: id, userId: req.user.id });
@@ -51,4 +48,4 @@ export const eliminarProyecto = async (req, res) => {
 
   await Plantilla.deleteMany({ projectId: id }); // cascada
   return res.status(200).json({ message: "Proyecto eliminado", data: borrado._id });
-};
+});

@@ -1,5 +1,5 @@
-import jwt from "jsonwebtoken";
 import User from "../models/usuarios.models.js";
+import { verifyToken } from "../utils/token.js";
 
 // Verifica token y adjunta req.user
 export const requireAuth = async (req, res, next) => {
@@ -16,9 +16,9 @@ export const requireAuth = async (req, res, next) => {
 
     let payload;
     try {
-      payload = jwt.verify(token,"SECRET-KEY",);
+      payload = verifyToken(token);
       // payload = { id, role, iat, exp }
-    } catch (err) {
+    } catch {
       return res.status(401).json({ msg: "Token inválido o expirado" });
     }
 
